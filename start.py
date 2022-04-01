@@ -7,25 +7,25 @@ from numba import jit
 # Creating a VideoCapture object to read the video
 cap = cv2.VideoCapture('contrast_1280x720.mp4')
 
-@jit(nopython=True)
-def linear_heat(img, steps=100, gamma = 0.01):
-    w, h = img.shape[:2]
-    
-    for t in range(steps):
-        img_new = img.copy()
-        for i in range(1, w - 1):
-            for j in range(1, h - 1):
-                diff = gamma * (img[i-1, j] + img[i+1, j] + img[i, j+1] + img[i, j-1] - 4*img[i,j])
-                if sum(np.abs(diff)) > 0.3:
-                    img_new[i, j] = img[i, j] + diff
-        img = img_new.copy()
-    return img
+# @jit(nopython=True)
+# def linear_heat(img, steps=100, gamma = 0.01):
+#     w, h = img.shape[:2]
+#     for t in range(steps):
+#         img_new = img.copy()
+#         for i in range(1, w - 1):
+#             for j in range(1, h - 1):
+#                 diff = gamma * (img[i-1, j] + img[i+1, j] + img[i, j+1] + img[i, j-1] - 4*img[i,j])
+#                 if sum(np.abs(diff)) > 0.3:
+#                     img_new[i, j] = img[i, j] + diff
+#         img = img_new.copy()
+#     return img
 
+# optimized version
 @jit(nopython=True)
-def linear_heat_2(img, steps=100, gamma=0.01):
+def linear_heat(img, steps=100, gamma=0.01):
+    img_new = img.copy()
     for t in range(steps):
-        img_new = img.copy()
-        img_new[1:-1, 1:-1] = img[1:-1, 1:-1] + gamma * (img[1:-1, 2:] + img[1:-1, :-2] + img[2:, 1:-1] + img[:-2, 1:-1] - 4 * img[1:-1, 1:-1])
+        img_new[1:-1, 1:-1] = (1 - 4 * gamma) * img[1:-1, 1:-1] + gamma * (img[1:-1, 2:] + img[1:-1, :-2] + img[2:, 1:-1] + img[:-2, 1:-1])
         img = img_new
     return img[1:-1, 1:-1]
 # Loop until the end of the video
@@ -33,7 +33,7 @@ def linear_heat_2(img, steps=100, gamma=0.01):
 
 
 while (cap.isOpened()):
- 
+    t = time()
     # Capture frame-by-frame
     ret, frame = cap.read()
     if frame is None:
@@ -50,17 +50,29 @@ while (cap.isOpened()):
     hardware_antialiased = frame[top:top+h, left:left+w]
     original = frame[top:top+h, left+offset:left+offset+w]
 
-   
-    # gaussian = cv2.GaussianBlur(original,(3,3),cv2.BORDER_DEFAULT)
+  
+    # original[original==0] = 1
     
 
-    inverted = 255 - original
-    padded = cv2.copyMakeBorder(inverted, 1,1,1,1,cv2.BORDER_REPLICATE)
-    heat = linear_heat_2(padded, 10, 0.05)
-    heat = 255 - heat 
-                    
+    edges = cv2.Sobel(original, cv2.CV_8U, 1, 1, ksize=3)
+    edges = cv2.dilate(edges, np.ones((3,3)))
+    mask = edges > 80
+    
+    
+    padded = np.zeros((original.shape[0]+2, original.shape[1]+2,3)).astype('uint8')
 
-    frame = np.concatenate([heat, hardware_antialiased], axis=1)
+    padded[1:-1, 1:-1] = original 
+    heat_res = original.copy().squeeze()
+    diffused = linear_heat(padded, 3, 0.15)
+    heat_res[mask] = diffused.squeeze()[mask]
+
+
+    
+    
+    
+
+    
+    frame = np.concatenate([heat_res, hardware_antialiased, edges], axis=1)
 
     # frame = cv2.resize(frame, (w * 4, h * 2))
  
@@ -76,7 +88,7 @@ while (cap.isOpened()):
     if cv2.waitKey(25) & 0xFF == ord('q'):
         break
     
- 
+    print(f"running at {1/(time() - t)} hz")
 # release the video capture object
 cap.release()
 # Closes all the windows currently opened.
