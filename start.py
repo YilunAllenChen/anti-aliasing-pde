@@ -6,7 +6,10 @@ from numba import jit
  
 # Creating a VideoCapture object to read the video
 cap = cv2.VideoCapture('contrast_1280x720.mp4')
+# cap = cv2.VideoCapture('contrast_1920x1080.mp4')
 
+
+# legacy code that runs very slowly.
 # @jit(nopython=True)
 # def linear_heat(img, steps=100, gamma = 0.01):
 #     w, h = img.shape[:2]
@@ -30,6 +33,12 @@ def linear_heat(img, steps=100, gamma=0.01):
     return img[1:-1, 1:-1]
 # Loop until the end of the video
 
+w = 600
+h = 600
+left = 500
+top = 200
+offset = 1920
+ 
 
 
 while (cap.isOpened()):
@@ -38,51 +47,33 @@ while (cap.isOpened()):
     ret, frame = cap.read()
     if frame is None:
         break
-    # frame = cv2.resize(frame, (640, 360), fx = 0, fy = 0, interpolation = cv2.INTER_CUBIC)
 
     height, width = frame.shape[:2]
-    w = 600
-    h = 600
-    left = 500
-    top = 200
-    offset = 1920
-    
-    hardware_antialiased = frame[top:top+h, left:left+w]
-    original = frame[top:top+h, left+offset:left+offset+w]
+   
+    original = frame[top:top+h, left:left+w]
+    hardware_antialiased = frame[top:top+h, left+offset:left+offset+w]
 
   
-    # original[original==0] = 1
-    
 
     edges = cv2.Sobel(original, cv2.CV_8U, 1, 1, ksize=3)
-    edges = cv2.dilate(edges, np.ones((3,3)))
-    mask = edges > 80
+    edges = cv2.dilate(edges, np.ones((5,5)))
+    mask = edges > 100 
     
     
     padded = np.zeros((original.shape[0]+2, original.shape[1]+2,3)).astype('uint8')
-
     padded[1:-1, 1:-1] = original 
+    diffused = linear_heat(padded, 2, 0.1)
+
+    non_discriminating = diffused.copy()
+
     heat_res = original.copy().squeeze()
-    diffused = linear_heat(padded, 3, 0.15)
     heat_res[mask] = diffused.squeeze()[mask]
 
+    frame = np.concatenate([heat_res, non_discriminating, original], axis=1)
 
-    
-    
-    
-
-    
-    frame = np.concatenate([heat_res, hardware_antialiased, edges], axis=1)
-
-    # frame = cv2.resize(frame, (w * 4, h * 2))
- 
     # Display the resulting frame
     cv2.imshow('Frame', frame)
     
-    
- 
-    # conversion of BGR to grayscale is necessary to apply this operation
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
  
     # define q as the exit button
     if cv2.waitKey(25) & 0xFF == ord('q'):
