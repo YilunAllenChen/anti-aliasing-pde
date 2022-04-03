@@ -5,8 +5,8 @@ from time import sleep, time
 from numba import jit
  
 # Creating a VideoCapture object to read the video
-cap = cv2.VideoCapture('contrast_1280x720.mp4')
-# cap = cv2.VideoCapture('contrast_1920x1080.mp4')
+# cap = cv2.VideoCapture('contrast_1280x720.mp4')
+cap = cv2.VideoCapture('contrast_1920x1080.mp4')
 
 
 # legacy code that runs very slowly.
@@ -26,12 +26,30 @@ cap = cv2.VideoCapture('contrast_1280x720.mp4')
 # optimized version
 @jit(nopython=True)
 def linear_heat(img, steps=100, gamma=0.01):
-    img_new = img.copy()
+    padded = np.zeros((original.shape[0]+2, original.shape[1]+2,3)).astype('uint8')
+    padded[1:-1, 1:-1] = img 
+    img_new = padded.copy()
     for t in range(steps):
-        img_new[1:-1, 1:-1] = (1 - 4 * gamma) * img[1:-1, 1:-1] + gamma * (img[1:-1, 2:] + img[1:-1, :-2] + img[2:, 1:-1] + img[:-2, 1:-1])
-        img = img_new
-    return img[1:-1, 1:-1]
-# Loop until the end of the video
+        img_new[1:-1, 1:-1] = (1 - gamma * 4) * padded[1:-1, 1:-1] + gamma * (padded[1:-1, 2:] + padded[1:-1, :-2] + padded[2:, 1:-1] + padded[:-2, 1:-1])
+        padded = img_new
+    return padded[1:-1, 1:-1]
+
+# optimized version
+@jit(nopython=True)
+def linear_heat_epsilon(img, epsilon=100, gamma=0.1):
+    padded = np.zeros((original.shape[0]+2, original.shape[1]+2,3)).astype('uint8')
+    padded[1:-1, 1:-1] = img 
+    img_new = padded.copy()
+    max_diff = epsilon + 1
+    while(max_diff > epsilon):
+        central = padded[1:-1, 1:-1]
+        diff = gamma * (padded[1:-1, 2:] + padded[1:-1, :-2] + padded[2:, 1:-1] + padded[:-2, 1:-1] - 4 * central)
+        diff = diff * (np.power(diff, 2) > epsilon)
+        img_new[1:-1, 1:-1] = central + diff
+        padded = img_new
+        max_diff = np.max(diff)
+    return padded[1:-1, 1:-1]
+
 
 w = 600
 h = 600
@@ -39,7 +57,19 @@ left = 500
 top = 200
 offset = 1920
  
+# dilation_kernal = np.array([
+#     [0, 1, 2, 1, 0],
+#     [1, 2, 4, 2, 1],
+#     [2, 4, 8, 4, 0],
+#     [1, 2, 4, 2, 1],
+#     [0, 1, 2, 1, 0]
+# ]).astype("uint8")
 
+dilation_kernal = np.array([
+    [0, 1, 0],
+    [1, 2, 1],
+    [0, 1, 0]
+]).astype('uint8')
 
 while (cap.isOpened()):
     t = time()
@@ -52,24 +82,23 @@ while (cap.isOpened()):
    
     original = frame[top:top+h, left:left+w]
     hardware_antialiased = frame[top:top+h, left+offset:left+offset+w]
-
   
 
-    edges = cv2.Sobel(original, cv2.CV_8U, 1, 1, ksize=3)
-    edges = cv2.dilate(edges, np.ones((5,5)))
-    mask = edges > 100 
-    
-    
-    padded = np.zeros((original.shape[0]+2, original.shape[1]+2,3)).astype('uint8')
-    padded[1:-1, 1:-1] = original 
-    diffused = linear_heat(padded, 2, 0.1)
+    laplacian = cv2.Laplacian(original, cv2.CV_8U)
+    edges = np.absolute(cv2.Sobel(original, cv2.CV_8U, 1, 1, ksize=3))
 
-    non_discriminating = diffused.copy()
+
+    dilated = cv2.dilate(laplacian, dilation_kernal)
+    mask = dilated > 100
+    
+    # diffused = linear_heat(original, 2, 0.15)
+    diffused = linear_heat_epsilon(original, 60, 0.2)
+    
 
     heat_res = original.copy().squeeze()
     heat_res[mask] = diffused.squeeze()[mask]
-
-    frame = np.concatenate([heat_res, non_discriminating, original], axis=1)
+    
+    frame = np.concatenate([heat_res, original, hardware_antialiased], axis=1)
 
     # Display the resulting frame
     cv2.imshow('Frame', frame)
