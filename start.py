@@ -9,20 +9,6 @@ from numba import jit
 cap = cv2.VideoCapture("contrast_1920x1080.mp4")
 
 
-# legacy code that runs very slowly.
-# @jit(nopython=True)
-# def linear_heat(img, steps=100, gamma = 0.01):
-#     w, h = img.shape[:2]
-#     for t in range(steps):
-#         img_new = img.copy()
-#         for i in range(1, w - 1):
-#             for j in range(1, h - 1):
-#                 diff = gamma * (img[i-1, j] + img[i+1, j] + img[i, j+1] + img[i, j-1] - 4*img[i,j])
-#                 if sum(np.abs(diff)) > 0.3:
-#                     img_new[i, j] = img[i, j] + diff
-#         img = img_new.copy()
-#     return img
-
 # optimized version
 # @jit(nopython=True)
 # def linear_heat(img, steps=100, gamma=0.01):
@@ -65,9 +51,21 @@ def peroma_malik(img, epsilon=0.3, b=2e3):
     padded = np.zeros((original.shape[0] + 2, original.shape[1] + 2, 3)).astype("uint8")
     padded[1:-1, 1:-1] = img
     img_new = padded.copy()
-    max_diff = epsilon + 1
+    central = padded[1:-1, 1:-1].astype("int64")
+    laplacian = (
+        padded[1:-1, 2:]
+        + padded[1:-1, :-2]
+        + padded[2:, 1:-1]
+        + padded[:-2, 1:-1]
+        - 4 * central
+    )
+    laplacian = (laplacian / 1e3)
+    max_diff = np.max(np.absolute(laplacian))
     while max_diff > epsilon:
-        central = padded[1:-1, 1:-1]
+        img_new[1:-1, 1:-1] = (central + b * np.power(laplacian, 3))
+        padded = img_new        
+
+        central = padded[1:-1, 1:-1].astype("int64")
         laplacian = (
             padded[1:-1, 2:]
             + padded[1:-1, :-2]
@@ -75,13 +73,13 @@ def peroma_malik(img, epsilon=0.3, b=2e3):
             + padded[:-2, 1:-1]
             - 4 * central
         )
-        laplacian = laplacian / 1e3
+        laplacian = (laplacian / 1e3)
 
-        img_new[1:-1, 1:-1] = central + b * np.power(laplacian, 3)
-        padded = img_new
         max_diff = np.max(np.absolute(laplacian))
         print(max_diff)
     return padded[1:-1, 1:-1]
+
+
 
 # arm
 # w = 200
@@ -134,8 +132,8 @@ while cap.isOpened():
     hardware_antialiased = frame[top : top + h, left + offset : left + offset + w]
 
     # use Sobel filter (gradient)
-    edges = np.absolute(cv2.Sobel(original, cv2.CV_8U, 1, 1, ksize=5))
-    dilated = cv2.dilate(edges, np.ones((5, 5)))
+    # edges = np.absolute(cv2.Sobel(original, cv2.CV_8U, 1, 1, ksize=5))
+    # dilated = cv2.dilate(edges, np.ones((5, 5)))
 
     # use Laplacian filter (second derivative)
     # laplacian = cv2.Laplacian(original, cv2.CV_8U)
