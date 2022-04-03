@@ -36,7 +36,7 @@ cap = cv2.VideoCapture("contrast_1920x1080.mp4")
 
 # optimized version
 @jit(nopython=True)
-def linear_heat_epsilon(img, epsilon=100, b=0.1):
+def peroma_malik_optimized(img, epsilon=100, b=0.1):
     gamma = 1e-5
     padded = np.zeros((original.shape[0] + 2, original.shape[1] + 2, 3)).astype("uint8")
     padded[1:-1, 1:-1] = img
@@ -51,10 +51,8 @@ def linear_heat_epsilon(img, epsilon=100, b=0.1):
             + padded[:-2, 1:-1]
             - 4 * central
         )
-
         # use square difference to quadratically penalize very large laplacians
         diff = gamma * np.absolute(np.power(laplacian, 2) - epsilon)
-
         img_new[1:-1, 1:-1] = central + b * diff * laplacian
         padded = img_new
         max_diff = np.max(diff)
@@ -62,10 +60,8 @@ def linear_heat_epsilon(img, epsilon=100, b=0.1):
     return padded[1:-1, 1:-1]
 
 
-# optimized version
 @jit(nopython=True)
-def peroma_malik(img, epsilon=100, b=0.1):
-    regulator = 1e-5
+def peroma_malik(img, epsilon=0.3, b=2e3):
     padded = np.zeros((original.shape[0] + 2, original.shape[1] + 2, 3)).astype("uint8")
     padded[1:-1, 1:-1] = img
     img_new = padded.copy()
@@ -79,8 +75,9 @@ def peroma_malik(img, epsilon=100, b=0.1):
             + padded[:-2, 1:-1]
             - 4 * central
         )
+        laplacian = laplacian / 1e3
 
-        img_new[1:-1, 1:-1] = central + regulator * b * np.power(laplacian, 3)
+        img_new[1:-1, 1:-1] = central + b * np.power(laplacian, 3)
         padded = img_new
         max_diff = np.max(np.absolute(laplacian))
         print(max_diff)
@@ -144,8 +141,7 @@ while cap.isOpened():
     # laplacian = cv2.Laplacian(original, cv2.CV_8U)
     # dilated = cv2.dilate(laplacian, dilation_kernal)
 
-    # diffused = linear_heat_epsilon(original, 1, 0.15)
-    diffused = peroma_malik(original, 400 , 0.2)
+    diffused = peroma_malik(original, 0.5, 1e3)
 
     frame = np.concatenate([diffused, original, hardware_antialiased], axis=1)
     frame = cv2.resize(frame, output_size)
