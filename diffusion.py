@@ -114,7 +114,7 @@ while cap.isOpened():
     diffused = diffuse_across_edges(original, 0.4, 1e3)
     gaussian = cv2.GaussianBlur(original, (3,3), 100)
 
-    frame = np.concatenate([diffused, gaussian, original], axis=1)
+    frame = np.concatenate([diffused, original, hardware_antialiased], axis=1)
     frame = cv2.resize(frame, output_size)
 
 
@@ -134,7 +134,7 @@ while cap.isOpened():
     )
     frame = cv2.putText(
         frame,
-        f"gaussian: relative entropy {round(gaussian_entropy - original_entropy)}",
+        f"original: relative entropy {0}",
         (grid_size + 10, 30),
         cv2.FONT_HERSHEY_COMPLEX_SMALL,
         1,
@@ -143,7 +143,7 @@ while cap.isOpened():
     )
     frame = cv2.putText(
         frame,
-        f"original: relative entropy {0}",
+        f"FXAA: relative entropy {round(hardware_entropy - original_entropy)}",
         (grid_size * 2 + 10, 30),
         cv2.FONT_HERSHEY_COMPLEX_SMALL,
         1,
