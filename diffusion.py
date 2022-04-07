@@ -3,71 +3,31 @@ import cv2
 import numpy as np
 from time import sleep, time
 from numba import jit
+from matplotlib import pyplot as plt
 
 # Creating a VideoCapture object to read the video
 # cap = cv2.VideoCapture('contrast_1280x720.mp4')
 cap = cv2.VideoCapture("contrast_1920x1080.mp4")
 
-# optimized version
-@jit(nopython=True)
-def diffuse_across_edges_optimized(img, epsilon=100, b=0.1):
-    gamma = 1e-5
-    padded = np.zeros((original.shape[0] + 2, original.shape[1] + 2, 3)).astype("uint8")
-    padded[1:-1, 1:-1] = img
-    img_new = padded.copy()
-    max_diff = epsilon + 1
-    while max_diff > epsilon:
-        central = padded[1:-1, 1:-1]
-        laplacian = (
-            padded[1:-1, 2:]
-            + padded[1:-1, :-2]
-            + padded[2:, 1:-1]
-            + padded[:-2, 1:-1]
-            - 4 * central
-        )
-        # use square difference to quadratically penalize very large laplacians
-        diff = gamma * np.absolute(np.power(laplacian, 2) - epsilon)
-        img_new[1:-1, 1:-1] = central + b * diff * laplacian
-        padded = img_new
-        max_diff = np.max(diff)
-        print(max_diff)
-    return padded[1:-1, 1:-1]
 
-
-@jit(nopython=True)
-def diffuse_across_edges(img, epsilon=0.3, b=2e3):
-    padded = np.zeros((original.shape[0] + 2, original.shape[1] + 2, 3)).astype("uint8")
-    padded[1:-1, 1:-1] = img
-    img_new = padded.copy()
-    central = padded[1:-1, 1:-1].astype("int64")
-    laplacian = (
-        padded[1:-1, 2:]
-        + padded[1:-1, :-2]
-        + padded[2:, 1:-1]
-        + padded[:-2, 1:-1]
-        - 4 * central
-    )
-    laplacian = (laplacian / 1e3)
-    max_diff = np.max(np.absolute(laplacian))
-    while max_diff > epsilon:
-        img_new[1:-1, 1:-1] = (central + b * np.power(laplacian, 3))
-        padded = img_new        
-
-        central = padded[1:-1, 1:-1].astype("int64")
-        laplacian = (
-            padded[1:-1, 2:]
-            + padded[1:-1, :-2]
-            + padded[2:, 1:-1]
-            + padded[:-2, 1:-1]
-            - 4 * central
-        )
-        laplacian = (laplacian / 1e3)
-
-        entropy = np.sum(np.power(laplacian, 2))
-        max_diff = np.max(np.absolute(laplacian))
-    return padded[1:-1, 1:-1]
-
-
+def inverse_perona_malik_diffusion(img, epsilon=0.2, b=0.03):
+    copy = img.copy()
+    gradient = cv2.Sobel(copy, cv2.CV_16S, 1, 0) + cv2.Sobel(copy, cv2.CV_16S, 0, 1)
+    max_grad = np.max(gradient / 1e3)
+    dx = 1000
+    print(max_grad)
+    while max_grad > epsilon:
+        Ix = cv2.Sobel(copy, cv2.CV_32F, 1, 0) / dx
+        Ixx = cv2.Sobel(Ix, cv2.CV_32F, 1, 0) / dx
+        Iy = cv2.Sobel(copy, cv2.CV_32F, 0, 1) / dx
+        Iyy = cv2.Sobel(Iy, cv2.CV_32F, 0, 1) / dx
+        It = b * dx * ((Ix**2 + Iy**2)**2) * (Ixx + Iyy)
+        diffused = (copy + It)
+        copy = diffused.astype("uint8")
+        gradient = cv2.Sobel(copy, cv2.CV_16S, 1, 0) + cv2.Sobel(copy, cv2.CV_16S, 0, 1)
+        max_grad = np.max(gradient / 1e3)
+        print("gradient: ", max_grad)
+    return copy
 
 
 # arm
@@ -81,40 +41,56 @@ def diffuse_across_edges(img, epsilon=0.3, b=2e3):
 # upper body
 w = 500
 h = 500
-left = 600
+left = 700
 top = 200
 offset = 1920
 grid_size = 500
 
 
-output_size = (3 * grid_size, grid_size)
-
+output_size = (2 * grid_size, 2 * grid_size)
 out = cv2.VideoWriter(
     "output.avi", cv2.VideoWriter_fourcc("M", "J", "P", "G"), 30, output_size
 )
+
 
 def gradient_square_entropy(img):
     gradient = cv2.Sobel(img, cv2.CV_16S, 1, 1)
     gradient = gradient / 1e3
     return np.round(np.sum(np.power(gradient, 2)), 2)
 
+entropies = {
+    "diffused": [],
+    "gaussian": [],
+    "original": [],
+    "hardware": []
+}
 
 while cap.isOpened():
     t = time()
-    # Capture frame-by-frame
     ret, frame = cap.read()
+    # Capture frame-by-frame
     if frame is None:
         break
 
     height, width = frame.shape[:2]
 
+    # extract the original graphics and the FXAA-based antialiasing graphics
     original = frame[top : top + h, left : left + w]
     hardware_antialiased = frame[top : top + h, left + offset : left + offset + w]
-
-    diffused = diffuse_across_edges(original, 0.4, 1e3)
+   
+    # For comparison purposes, include a Gaussian 
     gaussian = cv2.GaussianBlur(original, (3,3), 100)
 
-    frame = np.concatenate([diffused, original, hardware_antialiased], axis=1)
+    # Use the inverse perona malik diffusion
+    diffused = inverse_perona_malik_diffusion(original, 1, 50)
+
+    #
+    frame = np.concatenate(
+        (
+            np.concatenate([diffused, original], axis=1), 
+            np.concatenate([gaussian, hardware_antialiased], axis=1)
+        ),
+        axis=0)
     frame = cv2.resize(frame, output_size)
 
 
@@ -123,12 +99,18 @@ while cap.isOpened():
     gaussian_entropy = gradient_square_entropy(gaussian)
     hardware_entropy = gradient_square_entropy(hardware_antialiased)
 
+    entropies['diffused'].append(diffused_entropy)
+    entropies['original'].append(original_entropy)
+    entropies['gaussian'].append(gaussian_entropy)
+    entropies['hardware'].append(hardware_entropy)
+
+    font_size = 0.8
     frame = cv2.putText(
         frame,
         f"diffused: relative entropy {round(diffused_entropy - original_entropy)}",
         (10, 30),
         cv2.FONT_HERSHEY_COMPLEX_SMALL,
-        1,
+        font_size,
         (255, 255, 255),
         1,
     )
@@ -137,20 +119,28 @@ while cap.isOpened():
         f"original: relative entropy {0}",
         (grid_size + 10, 30),
         cv2.FONT_HERSHEY_COMPLEX_SMALL,
+        font_size,
+        (255, 255, 255),
         1,
+    )
+    frame = cv2.putText(
+        frame,
+        f"Gaussian: relative entropy {round(gaussian_entropy - original_entropy)}",
+        (10, grid_size + 30),
+        cv2.FONT_HERSHEY_COMPLEX_SMALL,
+        font_size,
         (255, 255, 255),
         1,
     )
     frame = cv2.putText(
         frame,
         f"FXAA: relative entropy {round(hardware_entropy - original_entropy)}",
-        (grid_size * 2 + 10, 30),
+        (grid_size + 10, grid_size + 30),
         cv2.FONT_HERSHEY_COMPLEX_SMALL,
-        1,
+        font_size,
         (255, 255, 255),
         1,
     )
-    
     
     # Display the resulting frame
     cv2.imshow("Frame", frame)
@@ -166,3 +156,9 @@ cap.release()
 out.release()
 # Closes all the windows currently opened.
 cv2.destroyAllWindows()
+
+t = [i for i in range(len(entropies['diffused']))]
+for (key, val) in entropies.items():
+    plt.plot(t, val, label=key)
+plt.legend()
+plt.show()
