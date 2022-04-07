@@ -13,7 +13,7 @@ from matplotlib import pyplot as plt
 cap = cv2.VideoCapture("contrast_1920x1080.mp4")
 
 
-def inverse_perona_malik_diffusion(img, epsilon=0.2, b=0.03):
+def inverse_perona_malik_diffusion(img, epsilon=1, b=50):
     # create a working copy.
     copy = img.copy()
     dx = 1000
