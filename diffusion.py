@@ -5,7 +5,6 @@ from time import sleep, time
 from numba import jit
 from matplotlib import pyplot as plt
 
-# Creating a VideoCapture object to read the video
 
 # low resolution version
 # cap = cv2.VideoCapture('contrast_1280x720.mp4')
@@ -14,23 +13,33 @@ from matplotlib import pyplot as plt
 cap = cv2.VideoCapture("contrast_1920x1080.mp4")
 
 
-def inverse_perona_malik_diffusion(img, epsilon=0.2, b=0.03):
+def inverse_perona_malik_diffusion(img, epsilon=1, b=50):
+    # create a working copy.
     copy = img.copy()
+    dx = 1000
+
+    # compute regularized max gradient 
     gradient = cv2.Sobel(copy, cv2.CV_16S, 1, 0) + cv2.Sobel(copy, cv2.CV_16S, 0, 1)
     max_grad = np.max(gradient / 1e3)
-    dx = 1000
-    print(max_grad)
+
+    # enter gradient descent
     while max_grad > epsilon:
+
+        # compute directional derivatives and second derivatives 
         Ix = cv2.Sobel(copy, cv2.CV_32F, 1, 0) / dx
         Ixx = cv2.Sobel(Ix, cv2.CV_32F, 1, 0) / dx
         Iy = cv2.Sobel(copy, cv2.CV_32F, 0, 1) / dx
         Iyy = cv2.Sobel(Iy, cv2.CV_32F, 0, 1) / dx
+
+        # compute update 
         It = b * dx * ((Ix**2 + Iy**2)**2) * (Ixx + Iyy)
         diffused = (copy + It)
         copy = diffused.astype("uint8")
+
+        # recompute regularized max gradient
         gradient = cv2.Sobel(copy, cv2.CV_16S, 1, 0) + cv2.Sobel(copy, cv2.CV_16S, 0, 1)
         max_grad = np.max(gradient / 1e3)
-        print("gradient: ", max_grad)
+        # print("gradient: ", max_grad)
     return copy
 
 
@@ -56,7 +65,7 @@ out = cv2.VideoWriter(
     "output.avi", cv2.VideoWriter_fourcc("M", "J", "P", "G"), 30, output_size
 )
 
-
+# define and record entropies of images
 def gradient_square_entropy(img):
     gradient = cv2.Sobel(img, cv2.CV_16S, 1, 1)
     gradient = gradient / 1e3
@@ -72,7 +81,6 @@ entropies = {
 while cap.isOpened():
     t = time()
     ret, frame = cap.read()
-    # Capture frame-by-frame
     if frame is None:
         break
 
@@ -88,7 +96,7 @@ while cap.isOpened():
     # Use the inverse perona malik diffusion
     diffused = inverse_perona_malik_diffusion(original, 1, 50)
 
-    #
+    # put frames all together side-by-side
     frame = np.concatenate(
         (
             np.concatenate([diffused, original], axis=1), 
@@ -98,16 +106,17 @@ while cap.isOpened():
     frame = cv2.resize(frame, output_size)
 
 
+    # compute and record entropies
     diffused_entropy = gradient_square_entropy(diffused)
     original_entropy = gradient_square_entropy(original)
     gaussian_entropy = gradient_square_entropy(gaussian)
     hardware_entropy = gradient_square_entropy(hardware_antialiased)
-
     entropies['diffused'].append(diffused_entropy)
     entropies['original'].append(original_entropy)
     entropies['gaussian'].append(gaussian_entropy)
     entropies['hardware'].append(hardware_entropy)
 
+    # put relative entropies onto frame
     font_size = 0.8
     frame = cv2.putText(
         frame,
@@ -163,6 +172,7 @@ cv2.destroyAllWindows()
 
 print(entropies)
 ground_truth_entropy = entropies['hardware']
+# plot the entropy evolution
 t = [i for i in range(len(entropies['diffused']))]
 for (key, val) in entropies.items():
     val = np.abs(np.array(val) - np.array(ground_truth_entropy))
