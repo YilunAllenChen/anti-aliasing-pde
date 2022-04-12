@@ -6,7 +6,11 @@ from numba import jit
 from matplotlib import pyplot as plt
 
 # Creating a VideoCapture object to read the video
+
+# low resolution version
 # cap = cv2.VideoCapture('contrast_1280x720.mp4')
+
+# high resolution version
 cap = cv2.VideoCapture("contrast_1920x1080.mp4")
 
 
@@ -31,20 +35,20 @@ def inverse_perona_malik_diffusion(img, epsilon=0.2, b=0.03):
 
 
 # arm
-# w = 200
-# h = 200
-# left = 700
-# top = 500
-# offset = 1950
-# grid_size = 400
+w = 200
+h = 200
+left = 700
+top = 500
+offset = 1950
+grid_size = 400
 
 # upper body
-w = 500
-h = 500
-left = 700
-top = 200
-offset = 1920
-grid_size = 500
+# w = 500
+# h = 500
+# left = 700
+# top = 200
+# offset = 1920
+# grid_size = 500
 
 
 output_size = (2 * grid_size, 2 * grid_size)
@@ -157,8 +161,11 @@ out.release()
 # Closes all the windows currently opened.
 cv2.destroyAllWindows()
 
+print(entropies)
+ground_truth_entropy = entropies['hardware']
 t = [i for i in range(len(entropies['diffused']))]
 for (key, val) in entropies.items():
+    val = np.abs(np.array(val) - np.array(ground_truth_entropy))
     plt.plot(t, val, label=key)
 plt.legend()
 plt.show()
