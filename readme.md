@@ -1,9 +1,4 @@
 # PDE-Based Anti-Aliasing in Computer Graphics
-
-ECE 6560: PDE for Image Processing Final Project
-
-Yilun Chen (ychen943)
-
 Apr. 5th, 2022
 
 # Part I: Description of Problem
